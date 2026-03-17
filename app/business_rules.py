@@ -1,4 +1,5 @@
 from typing import List
+import re
 
 from .models import Attachment, RequirementsResult
 
@@ -27,7 +28,15 @@ def check_trade_in_requirements(text: str, attachments: List[Attachment]) -> Req
     missing: List[str] = []
     desired_missing: List[str] = []
 
-    if "regnr" not in lowered and "registreringsnummer" not in lowered and "skilt" not in lowered:
+    plate_pattern = re.compile(r"\b[A-ZÆØÅ]{2}\d{4,5}\b")
+    has_plate = bool(plate_pattern.search(text))
+
+    if (
+        "regnr" not in lowered
+        and "registreringsnummer" not in lowered
+        and "skilt" not in lowered
+        and not has_plate
+    ):
         missing.append("registreringsnummer")
 
     if "km" not in lowered and "kilometer" not in lowered:
@@ -39,10 +48,12 @@ def check_trade_in_requirements(text: str, attachments: List[Attachment]) -> Req
     if not _has_any_picture(attachments):
         missing.append("minst ett bilde av maskinen")
 
-    if "tilstand" not in lowered and "generell stand" not in lowered:
+    condition_words = ["tilstand", "generell stand", "pent behandlet", "god stand"]
+    if not any(w in lowered for w in condition_words):
         desired_missing.append("beskrivelse av generell tilstand")
 
-    if "skade" not in lowered:
+    damage_words = ["skade", "riper", "rip", "bulk", "bulker", "slitasje"]
+    if not any(w in lowered for w in damage_words):
         desired_missing.append("informasjon om eventuelle skader")
 
     if "dekk" not in lowered:
@@ -78,7 +89,15 @@ def check_service_requirements(text: str, attachments: List[Attachment]) -> Requ
     if "km" not in lowered and "kilometer" not in lowered:
         missing.append("km-stand")
 
-    if "regnr" not in lowered and "registreringsnummer" not in lowered and "skilt" not in lowered:
+    plate_pattern = re.compile(r"\b[A-ZÆØÅ]{2}\d{4,5}\b")
+    has_plate = bool(plate_pattern.search(text))
+
+    if (
+        "regnr" not in lowered
+        and "registreringsnummer" not in lowered
+        and "skilt" not in lowered
+        and not has_plate
+    ):
         missing.append("registreringsnummer")
 
     if "skade" in lowered or "skadebesiktigelse" in lowered:

@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     # Claude / Anthropic
     claude_api_key: str | None = None
-    claude_model: str = "claude-3-5-sonnet-20240620"
+    claude_model: str = "claude-sonnet-4-6"
 
     # Microsoft Graph / Azure AD
     graph_tenant_id: str | None = None
