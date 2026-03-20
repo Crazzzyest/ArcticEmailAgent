@@ -10,6 +10,11 @@ Dette prosjektet er en liten Python/FastAPI‑tjeneste som:
 - Sjekker om nødvendig informasjon er på plass ut fra faste regler.
 - Bruker Claude API til å lage et norsk svarutkast når det er hensiktsmessig.
 
+### Tone og signatur
+
+- Promptene er tilpasset **profesjonell** tone (unngår «KI-hyggelig» språk som *spennende handel*). Modellen instrueres blant annet til takk for henvendelsen og **konkret** referanse til det kunden skriver (produkt/tema).
+- **Outlook-signatur kan ikke «skrus på» via Graph** når vi setter hele `body` med PATCH: innholdet vi sender **er** kladden. Firmasignaturen derfor **lagt inn som fast HTML** i `app/email_signature.py`. Juster tekst/HTML der ved behov (f.eks. annen signatur for `service@` senere).
+
 ## Kom i gang (lokalt)
 
 1. Opprett et virtuelt miljø og installer avhengigheter:

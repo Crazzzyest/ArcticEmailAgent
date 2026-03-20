@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 
 from .config import get_settings, Settings
+from .email_signature import plain_reply_to_outlook_html
 from .models import Attachment, EmailMessage, EmailThread, ProcessThreadRequest, ProcessThreadResponse
 from .service import process_email_thread_from_raw, process_email_thread_from_graph_payload
 from .graph_client import GraphClient
@@ -303,7 +304,7 @@ async def graph_webhook(
                         graph = GraphClient()
                         await graph.create_draft_reply(
                             message_id,
-                            response.reply_draft.replace("\n", "<br/>"),
+                            plain_reply_to_outlook_html(response.reply_draft),
                             mailbox=mailbox_user,
                         )
                         logger.info(
