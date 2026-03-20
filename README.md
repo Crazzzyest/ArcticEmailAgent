@@ -25,6 +25,8 @@ pip install -r requirements.txt
 - `GRAPH_DEFAULT_MAILBOX` – valgfri fallback (f.eks. `Salg@arcticmotor.no`) hvis webhook-notification ikke inneholder parsebar postboks i `resource`/`@odata.id`. For delte postbokser brukes `users/{mailbox}/messages/...` i stedet for `/me/...`.
 - `GRAPH_WEBHOOK_URL` – full offentlig webhook‑URL (f.eks. `https://arcticemailagent.sliplane.app/graph/webhook`). Brukes til automatisk **fornyelse** av Graph‑subscriptions som matcher denne URL‑en (PATCH med ny `expirationDateTime`).
 - Valgfritt: `GRAPH_SUBSCRIPTION_RENEW_ENABLED` (default `true`), `GRAPH_SUBSCRIPTION_RENEW_INTERVAL_SECONDS` (default `21600` = 6 timer), `GRAPH_SUBSCRIPTION_EXTEND_MINUTES` (default `4180`, litt under maks for postboks).
+- `GRAPH_WEBHOOK_ONLY_CREATED` (default `true`) – ignorer Graph-notifications med kun `updated` (reduserer duplikater og Claude-bruk).
+- `GRAPH_WEBHOOK_MESSAGE_DEDUPE_TTL_SECONDS` (default `86400`) – ikke kjør pipeline på nytt for samme `message_id` innenfor dette tidsvinduet (in-memory; ved flere instanser trengs ev. delt lagring).
 
 3. Start API‑et lokalt:
 

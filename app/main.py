@@ -12,6 +12,11 @@ from .service import process_email_thread_from_raw, process_email_thread_from_gr
 from .graph_client import GraphClient
 from .graph_resource import extract_mailbox_user_from_notification
 from .subscription_renewal import subscription_renewal_loop
+from .webhook_dedupe import (
+    mark_processed,
+    should_skip_change_type,
+    was_recently_processed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +113,7 @@ async def graph_webhook(
         len(notifications),
     )
     results: List[Dict[str, Any]] = []
+    batch_message_ids: set[str] = set()
 
     for idx, notification in enumerate(notifications):
         try:
@@ -133,6 +139,25 @@ async def graph_webhook(
                 mailbox_user,
                 str(odata_id) if odata_id else None,
             )
+
+            if should_skip_change_type(
+                change_type, settings.graph_webhook_only_created
+            ):
+                logger.info(
+                    "Graph notification #%s: hopper over (kun 'created' tillatt, changeType=%s)",
+                    idx + 1,
+                    change_type,
+                )
+                results.append(
+                    {
+                        "ok": True,
+                        "skipped": "change_type_not_created",
+                        "change_type": change_type,
+                        "notification_index": idx + 1,
+                    }
+                )
+                continue
+
             body = None
             body_content_type = "html"
 
@@ -203,6 +228,41 @@ async def graph_webhook(
                 )
                 continue
 
+            if message_id:
+                if message_id in batch_message_ids:
+                    logger.info(
+                        "Graph notification #%s: hopper over (duplikat message_id i samme webhook-batch) id=%s",
+                        idx + 1,
+                        message_id,
+                    )
+                    results.append(
+                        {
+                            "ok": True,
+                            "skipped": "duplicate_in_batch",
+                            "message_id": message_id,
+                            "notification_index": idx + 1,
+                        }
+                    )
+                    continue
+                dedupe_ttl = float(settings.graph_webhook_message_dedupe_ttl_seconds)
+                if await was_recently_processed(message_id, dedupe_ttl):
+                    logger.info(
+                        "Graph notification #%s: hopper over (allerede behandlet nylig) id=%s ttl_s=%s",
+                        idx + 1,
+                        message_id,
+                        int(dedupe_ttl),
+                    )
+                    results.append(
+                        {
+                            "ok": True,
+                            "skipped": "duplicate_recent",
+                            "message_id": message_id,
+                            "notification_index": idx + 1,
+                        }
+                    )
+                    continue
+                batch_message_ids.add(message_id)
+
             msg = EmailMessage(
                 id=message_id,
                 subject=subject,
@@ -214,6 +274,12 @@ async def graph_webhook(
                 messages=[msg],
             )
             response = await process_email_thread_from_graph_payload(thread)
+
+            if message_id:
+                await mark_processed(
+                    message_id,
+                    float(settings.graph_webhook_message_dedupe_ttl_seconds),
+                )
 
             subj_preview = (subject or "")[:120]
             logger.info(

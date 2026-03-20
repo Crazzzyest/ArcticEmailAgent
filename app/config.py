@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     # Maks ca. 4230 min for postboks-meldinger; hold litt margin under taket
     graph_subscription_extend_minutes: int = 4180
 
+    # Unngå duplikat-behandling av samme melding (spar Claude-tokens)
+    # Kun kjør pipeline for notifications med created; ignorer rent «updated».
+    graph_webhook_only_created: bool = True
+    # Sekunder: ikke prosesser samme message_id på nytt (default 24t)
+    graph_webhook_message_dedupe_ttl_seconds: int = 86400
+
     # Misc
     environment: str = "local"
 
