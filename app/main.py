@@ -14,9 +14,10 @@ from .graph_client import GraphClient
 from .graph_resource import extract_mailbox_user_from_notification
 from .subscription_renewal import subscription_renewal_loop
 from .webhook_dedupe import (
-    mark_processed,
+    abort_message_processing,
+    complete_message_processing,
     should_skip_change_type,
-    was_recently_processed,
+    try_begin_message_processing,
 )
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,8 @@ async def graph_webhook(
     batch_message_ids: set[str] = set()
 
     for idx, notification in enumerate(notifications):
+        acquired_for_message: bool = False
+        mid: Optional[str] = None
         try:
             change_type = notification.get("changeType")
             subscription_id = notification.get("subscriptionId")
@@ -168,6 +171,7 @@ async def graph_webhook(
                 body_content_type = body_obj.get("contentType", "html")
 
             message_id = resource_data.get("id")
+            mid = message_id if isinstance(message_id, str) else None
 
             if not body and not message_id:
                 logger.warning(
@@ -246,9 +250,9 @@ async def graph_webhook(
                     )
                     continue
                 dedupe_ttl = float(settings.graph_webhook_message_dedupe_ttl_seconds)
-                if await was_recently_processed(message_id, dedupe_ttl):
+                if not await try_begin_message_processing(message_id, dedupe_ttl):
                     logger.info(
-                        "Graph notification #%s: hopper over (allerede behandlet nylig) id=%s ttl_s=%s",
+                        "Graph notification #%s: hopper over (samme melding behandles allerede eller er ferdig nylig) id=%s ttl_s=%s",
                         idx + 1,
                         message_id,
                         int(dedupe_ttl),
@@ -256,12 +260,13 @@ async def graph_webhook(
                     results.append(
                         {
                             "ok": True,
-                            "skipped": "duplicate_recent",
+                            "skipped": "duplicate_concurrent_or_recent",
                             "message_id": message_id,
                             "notification_index": idx + 1,
                         }
                     )
                     continue
+                acquired_for_message = True
                 batch_message_ids.add(message_id)
 
             msg = EmailMessage(
@@ -277,10 +282,11 @@ async def graph_webhook(
             response = await process_email_thread_from_graph_payload(thread)
 
             if message_id:
-                await mark_processed(
+                await complete_message_processing(
                     message_id,
                     float(settings.graph_webhook_message_dedupe_ttl_seconds),
                 )
+            acquired_for_message = False
 
             subj_preview = (subject or "")[:120]
             logger.info(
@@ -324,6 +330,8 @@ async def graph_webhook(
                 {"ok": True, "data": response.model_dump(mode="json")}
             )
         except Exception as exc:
+            if acquired_for_message and mid:
+                await abort_message_processing(mid)
             logger.exception(
                 "Graph notification #%s: uventet feil: %s", idx + 1, exc
             )

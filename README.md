@@ -31,7 +31,7 @@ pip install -r requirements.txt
 - `GRAPH_WEBHOOK_URL` – full offentlig webhook‑URL (f.eks. `https://arcticemailagent.sliplane.app/graph/webhook`). Brukes til automatisk **fornyelse** av Graph‑subscriptions som matcher denne URL‑en (PATCH med ny `expirationDateTime`).
 - Valgfritt: `GRAPH_SUBSCRIPTION_RENEW_ENABLED` (default `true`), `GRAPH_SUBSCRIPTION_RENEW_INTERVAL_SECONDS` (default `21600` = 6 timer), `GRAPH_SUBSCRIPTION_EXTEND_MINUTES` (default `4180`, litt under maks for postboks).
 - `GRAPH_WEBHOOK_ONLY_CREATED` (default `true`) – ignorer Graph-notifications med kun `updated` (reduserer duplikater og Claude-bruk).
-- `GRAPH_WEBHOOK_MESSAGE_DEDUPE_TTL_SECONDS` (default `86400`) – ikke kjør pipeline på nytt for samme `message_id` innenfor dette tidsvinduet (in-memory; ved flere instanser trengs ev. delt lagring).
+- `GRAPH_WEBHOOK_MESSAGE_DEDUPE_TTL_SECONDS` (default `86400`) – ikke kjør pipeline på nytt for samme `message_id` innenfor dette tidsvinduet (in-memory; ved flere instanser trengs ev. delt lagring). Samme `message_id` kan heller ikke behandles **samtidig** (to webhook-POST med mikrosekunders mellomrom, f.eks. doble subscriptions) – da hoppes den ene over som `duplicate_concurrent_or_recent`.
 
 3. Start API‑et lokalt:
 
