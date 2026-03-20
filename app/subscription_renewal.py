@@ -9,6 +9,8 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
+import httpx
+
 from .config import get_settings
 from .graph_client import GraphClient
 
@@ -58,6 +60,14 @@ async def renew_subscriptions_once() -> None:
             await client.patch_subscription(sub_id, new_exp)
             renewed += 1
             logger.info("Fornyet Graph-subscription %s -> %s", sub_id, new_exp)
+        except httpx.HTTPStatusError as exc:
+            # Etter transient-retry i GraphClient: rolig logg (unngå full traceback for 503 osv.)
+            logger.warning(
+                "Klarte ikke fornye subscription %s: HTTP %s %s",
+                sub_id,
+                exc.response.status_code,
+                exc.response.text[:300] if exc.response.text else "",
+            )
         except Exception as exc:
             logger.exception("Klarte ikke fornye subscription %s: %s", sub_id, exc)
 

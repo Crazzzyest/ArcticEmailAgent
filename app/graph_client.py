@@ -1,3 +1,6 @@
+import asyncio
+import logging
+import random
 from typing import Any, Dict, Optional
 from urllib.parse import quote
 
@@ -5,6 +8,11 @@ import httpx
 import msal
 
 from .config import get_settings
+
+logger = logging.getLogger(__name__)
+
+# Midlertidige feil fra Graph / gateway – verdt å prøve på nytt (503 er vanlig ved fornyelse).
+_RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
 
 
 class GraphClient:
@@ -49,6 +57,57 @@ class GraphClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def _request_transient_retry(
+        self,
+        method: str,
+        url: str,
+        json: Optional[Dict[str, Any]] = None,
+        *,
+        max_retries: int = 3,
+    ) -> Dict[str, Any]:
+        """
+        Som _request, men prøv på nytt ved 429/502/503/504 med backoff.
+        Brukes bl.a. ved subscription-PATCH der Graph av og til svarer 503.
+        """
+        next_delay = 2.0
+        last_resp: Optional[httpx.Response] = None
+        for attempt in range(max_retries + 1):
+            token = self._acquire_token()
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            }
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.request(method, url, headers=headers, json=json)
+            last_resp = resp
+            if resp.status_code < 400:
+                return resp.json()
+            if resp.status_code in _RETRYABLE_STATUS and attempt < max_retries:
+                ra = resp.headers.get("Retry-After")
+                if ra is not None:
+                    try:
+                        wait_s = float(ra)
+                    except ValueError:
+                        wait_s = next_delay + random.uniform(0, 0.5)
+                else:
+                    wait_s = next_delay + random.uniform(0, 0.25)
+                    next_delay = min(next_delay * 2.0, 60.0)
+                logger.warning(
+                    "Graph %s %s → %s; venter %.1f s og prøver igjen (%s/%s)",
+                    method,
+                    url.partition("?")[0],
+                    resp.status_code,
+                    wait_s,
+                    attempt + 1,
+                    max_retries + 1,
+                )
+                await asyncio.sleep(wait_s)
+                continue
+            resp.raise_for_status()
+        if last_resp is not None:
+            last_resp.raise_for_status()
+        raise RuntimeError("Graph-kall feilet uten respons")
+
     async def list_subscriptions(self) -> Dict[str, Any]:
         url = f"{self.settings.graph_base_url}/subscriptions"
         return await self._request("GET", url)
@@ -57,10 +116,11 @@ class GraphClient:
         self, subscription_id: str, expiration_datetime: str
     ) -> Dict[str, Any]:
         url = f"{self.settings.graph_base_url}/subscriptions/{subscription_id}"
-        return await self._request(
+        return await self._request_transient_retry(
             "PATCH",
             url,
             json={"expirationDateTime": expiration_datetime},
+            max_retries=3,
         )
 
     def _user_messages_path(self, mailbox: str, message_id: str, suffix: str = "") -> str:
