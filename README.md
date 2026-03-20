@@ -22,6 +22,8 @@ pip install -r requirements.txt
 
 - `CLAUDE_API_KEY` – API‑nøkkel til Claude.
 - `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` – for Microsoft Graph.
+- `GRAPH_WEBHOOK_URL` – full offentlig webhook‑URL (f.eks. `https://arcticemailagent.sliplane.app/graph/webhook`). Brukes til automatisk **fornyelse** av Graph‑subscriptions som matcher denne URL‑en (PATCH med ny `expirationDateTime`).
+- Valgfritt: `GRAPH_SUBSCRIPTION_RENEW_ENABLED` (default `true`), `GRAPH_SUBSCRIPTION_RENEW_INTERVAL_SECONDS` (default `21600` = 6 timer), `GRAPH_SUBSCRIPTION_EXTEND_MINUTES` (default `4180`, litt under maks for postboks).
 
 3. Start API‑et lokalt:
 
@@ -53,6 +55,7 @@ docker run -p 8000:8000 \
   -e GRAPH_TENANT_ID=... \
   -e GRAPH_CLIENT_ID=... \
   -e GRAPH_CLIENT_SECRET=... \
+  -e GRAPH_WEBHOOK_URL=https://<ditt-domene>/graph/webhook \
   arctic-email-assistant
 ```
 

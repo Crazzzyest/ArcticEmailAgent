@@ -48,6 +48,20 @@ class GraphClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def list_subscriptions(self) -> Dict[str, Any]:
+        url = f"{self.settings.graph_base_url}/subscriptions"
+        return await self._request("GET", url)
+
+    async def patch_subscription(
+        self, subscription_id: str, expiration_datetime: str
+    ) -> Dict[str, Any]:
+        url = f"{self.settings.graph_base_url}/subscriptions/{subscription_id}"
+        return await self._request(
+            "PATCH",
+            url,
+            json={"expirationDateTime": expiration_datetime},
+        )
+
     async def get_message(self, message_id: str) -> Dict[str, Any]:
         url = f"{self.settings.graph_base_url}/me/messages/{message_id}"
         return await self._request("GET", url)

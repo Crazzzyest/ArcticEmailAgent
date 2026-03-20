@@ -16,6 +16,15 @@ class Settings(BaseSettings):
     graph_client_secret: str | None = None
     graph_base_url: AnyHttpUrl = "https://graph.microsoft.com/v1.0"  # type: ignore[assignment]
 
+    # Graph webhooks / subscription-fornyelse
+    # Full offentlig URL til webhook (brukes til å filtrere hvilke subscriptions som fornyes),
+    # f.eks. https://arcticemailagent.sliplane.app/graph/webhook
+    graph_webhook_url: str | None = None
+    graph_subscription_renew_enabled: bool = True
+    graph_subscription_renew_interval_seconds: int = 21600  # 6 timer
+    # Maks ca. 4230 min for postboks-meldinger; hold litt margin under taket
+    graph_subscription_extend_minutes: int = 4180
+
     # Misc
     environment: str = "local"
 

@@ -1,3 +1,6 @@
+import asyncio
+import logging
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -7,8 +10,32 @@ from .config import get_settings, Settings
 from .models import Attachment, EmailMessage, EmailThread, ProcessThreadRequest, ProcessThreadResponse
 from .service import process_email_thread_from_raw, process_email_thread_from_graph_payload
 from .graph_client import GraphClient
+from .subscription_renewal import subscription_renewal_loop
 
-app = FastAPI(title="Arctic Email Assistant")
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task: Optional[asyncio.Task[None]] = None
+    settings = get_settings()
+    if settings.graph_subscription_renew_enabled and settings.graph_webhook_url:
+        task = asyncio.create_task(subscription_renewal_loop())
+        logger.info(
+            "Graph subscription-fornyelse startet (intervall %s s, webhook-filter: %s)",
+            settings.graph_subscription_renew_interval_seconds,
+            settings.graph_webhook_url,
+        )
+    yield
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Arctic Email Assistant", lifespan=lifespan)
 
 
 def get_app_settings() -> Settings:
@@ -32,6 +59,27 @@ async def test_process_thread(payload: ProcessThreadRequest) -> ProcessThreadRes
     )
 
 
+async def _graph_webhook_validation(validation_token: Optional[str]) -> PlainTextResponse:
+    """
+    Graph krever 200 OK og ren tekst med token i body innen ~10 sekunder.
+    Noen valideringsflyter bruker GET, andre POST med ?validationToken=...
+    """
+    if not validation_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Mangler validationToken for subscription-validering.",
+        )
+    return PlainTextResponse(content=validation_token, media_type="text/plain")
+
+
+@app.get("/graph/webhook")
+async def graph_webhook_validation_get(
+    validation_token: Optional[str] = Query(default=None, alias="validationToken"),
+):
+    """Håndter GET-validering fra Microsoft Graph (noen tenant-/flyt-versjoner)."""
+    return await _graph_webhook_validation(validation_token)
+
+
 @app.post("/graph/webhook")
 async def graph_webhook(
     request: Request,
@@ -44,9 +92,12 @@ async def graph_webhook(
     - Ved vanlige kall mottar vi notifications om nye e‑poster.
     """
     if validation_token is not None:
-        return PlainTextResponse(content=validation_token, media_type="text/plain")
+        return await _graph_webhook_validation(validation_token)
 
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Forventet JSON-body med notifications.") from None
     notifications: List[Dict[str, Any]] = data.get("value", [])
 
     results: List[Dict[str, Any]] = []
