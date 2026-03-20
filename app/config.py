@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     graph_client_secret: str | None = None
     graph_base_url: AnyHttpUrl = "https://graph.microsoft.com/v1.0"  # type: ignore[assignment]
 
+    # Fallback-postboks hvis Graph-notification mangler parsebar 'resource' / @odata.id
+    # (f.eks. Salg@arcticmotor.no). Bruk helst at webhook inneholder full ressurssti.
+    graph_default_mailbox: str | None = None
+
     # Graph webhooks / subscription-fornyelse
     # Full offentlig URL til webhook (brukes til å filtrere hvilke subscriptions som fornyes),
     # f.eks. https://arcticemailagent.sliplane.app/graph/webhook

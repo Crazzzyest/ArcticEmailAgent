@@ -22,6 +22,7 @@ pip install -r requirements.txt
 
 - `CLAUDE_API_KEY` – API‑nøkkel til Claude.
 - `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` – for Microsoft Graph.
+- `GRAPH_DEFAULT_MAILBOX` – valgfri fallback (f.eks. `Salg@arcticmotor.no`) hvis webhook-notification ikke inneholder parsebar postboks i `resource`/`@odata.id`. For delte postbokser brukes `users/{mailbox}/messages/...` i stedet for `/me/...`.
 - `GRAPH_WEBHOOK_URL` – full offentlig webhook‑URL (f.eks. `https://arcticemailagent.sliplane.app/graph/webhook`). Brukes til automatisk **fornyelse** av Graph‑subscriptions som matcher denne URL‑en (PATCH med ny `expirationDateTime`).
 - Valgfritt: `GRAPH_SUBSCRIPTION_RENEW_ENABLED` (default `true`), `GRAPH_SUBSCRIPTION_RENEW_INTERVAL_SECONDS` (default `21600` = 6 timer), `GRAPH_SUBSCRIPTION_EXTEND_MINUTES` (default `4180`, litt under maks for postboks).
 

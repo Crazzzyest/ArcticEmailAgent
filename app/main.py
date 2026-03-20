@@ -10,6 +10,7 @@ from .config import get_settings, Settings
 from .models import Attachment, EmailMessage, EmailThread, ProcessThreadRequest, ProcessThreadResponse
 from .service import process_email_thread_from_raw, process_email_thread_from_graph_payload
 from .graph_client import GraphClient
+from .graph_resource import extract_mailbox_user_from_notification
 from .subscription_renewal import subscription_renewal_loop
 
 logger = logging.getLogger(__name__)
@@ -109,105 +110,163 @@ async def graph_webhook(
     results: List[Dict[str, Any]] = []
 
     for idx, notification in enumerate(notifications):
-        change_type = notification.get("changeType")
-        subscription_id = notification.get("subscriptionId")
-        resource = notification.get("resource")
-        tenant_id = notification.get("tenantId")
-        resource_data = notification.get("resourceData") or {}
-        odata_id = resource_data.get("@odata.id") or resource_data.get("id")
-        subject = resource_data.get("subject")
+        try:
+            change_type = notification.get("changeType")
+            subscription_id = notification.get("subscriptionId")
+            resource = notification.get("resource")
+            tenant_id = notification.get("tenantId")
+            resource_data = notification.get("resourceData") or {}
+            odata_id = resource_data.get("@odata.id") or resource_data.get("id")
+            subject = resource_data.get("subject")
 
-        logger.info(
-            "Graph notification #%s: changeType=%s subscriptionId=%s tenantId=%s resource=%s resourceData.id=%s",
-            idx + 1,
-            change_type,
-            subscription_id,
-            tenant_id,
-            resource,
-            str(odata_id) if odata_id else None,
-        )
-        body = None
-        body_content_type = "html"
+            mailbox_user = extract_mailbox_user_from_notification(
+                notification, resource_data
+            ) or settings.graph_default_mailbox
 
-        body_obj = resource_data.get("body")
-        if isinstance(body_obj, dict):
-            body = body_obj.get("content")
-            body_content_type = body_obj.get("contentType", "html")
-
-        message_id = resource_data.get("id")
-
-        if not body and not message_id:
-            logger.warning(
-                "Graph notification #%s: hopper over (ingen body og ingen meldings-id i resourceData)",
-                idx + 1,
-            )
-            continue
-
-        if not body and message_id:
             logger.info(
-                "Graph notification #%s: henter full melding fra Graph id=%s",
+                "Graph notification #%s: changeType=%s subscriptionId=%s tenantId=%s resource=%s mailbox=%s resourceData.id=%s",
                 idx + 1,
-                message_id,
+                change_type,
+                subscription_id,
+                tenant_id,
+                resource,
+                mailbox_user,
+                str(odata_id) if odata_id else None,
             )
-            try:
-                graph = GraphClient()
-                graph_msg = await graph.get_message(message_id)
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=str(exc))
+            body = None
+            body_content_type = "html"
 
-            subject = graph_msg.get("subject", subject)
-            body_obj = graph_msg.get("body", {}) or {}
-            body = body_obj.get("content")
-            body_content_type = body_obj.get("contentType", "html")
+            body_obj = resource_data.get("body")
+            if isinstance(body_obj, dict):
+                body = body_obj.get("content")
+                body_content_type = body_obj.get("contentType", "html")
 
-        if not body:
-            logger.warning(
-                "Graph notification #%s: hopper over (ingen body etter henting) id=%s",
-                idx + 1,
-                message_id,
-            )
-            continue
+            message_id = resource_data.get("id")
 
-        msg = EmailMessage(
-            id=message_id,
-            subject=subject,
-            body=body,
-            attachments=[],
-        )
-        thread = EmailThread(
-            conversation_id=resource_data.get("conversationId"),
-            messages=[msg],
-        )
-        response = await process_email_thread_from_graph_payload(thread)
+            if not body and not message_id:
+                logger.warning(
+                    "Graph notification #%s: hopper over (ingen body og ingen meldings-id i resourceData)",
+                    idx + 1,
+                )
+                continue
 
-        subj_preview = (subject or "")[:120]
-        logger.info(
-            "Graph notification #%s: behandlet category=%s action=%s confidence=%s subject=%r message_id=%s",
-            idx + 1,
-            response.category.value,
-            response.action,
-            response.confidence,
-            subj_preview,
-            message_id,
-        )
-
-        if response.action == "create_draft_reply" and response.reply_draft and message_id:
-            try:
-                graph = GraphClient()
-                await graph.create_draft_reply(message_id, response.reply_draft.replace("\n", "<br/>"))
+            if not body and message_id:
+                if not mailbox_user:
+                    logger.error(
+                        "Graph notification #%s: kan ikke hente melding uten postboks (sett GRAPH_DEFAULT_MAILBOX eller sjekk resource i notification)",
+                        idx + 1,
+                    )
+                    results.append(
+                        {
+                            "ok": False,
+                            "error": "missing_mailbox_for_graph_fetch",
+                            "notification_index": idx + 1,
+                            "message_id": message_id,
+                        }
+                    )
+                    continue
                 logger.info(
-                    "Graph notification #%s: kladd-svar opprettet for message_id=%s",
+                    "Graph notification #%s: henter full melding mailbox=%s id=%s",
                     idx + 1,
+                    mailbox_user,
                     message_id,
                 )
-            except Exception:
-                logger.exception(
-                    "Graph notification #%s: klarte ikke opprette kladd for message_id=%s",
-                    idx + 1,
-                    message_id,
-                )
+                try:
+                    graph = GraphClient()
+                    graph_msg = await graph.get_message(message_id, mailbox=mailbox_user)
+                except Exception as exc:
+                    logger.exception(
+                        "Graph notification #%s: feil ved get_message: %s",
+                        idx + 1,
+                        exc,
+                    )
+                    results.append(
+                        {
+                            "ok": False,
+                            "error": str(exc),
+                            "notification_index": idx + 1,
+                            "message_id": message_id,
+                        }
+                    )
+                    continue
 
-        results.append(response.dict())
+                subject = graph_msg.get("subject", subject)
+                body_obj = graph_msg.get("body", {}) or {}
+                body = body_obj.get("content")
+                body_content_type = body_obj.get("contentType", "html")
+
+            if not body:
+                logger.warning(
+                    "Graph notification #%s: hopper over (ingen body etter henting) id=%s",
+                    idx + 1,
+                    message_id,
+                )
+                continue
+
+            msg = EmailMessage(
+                id=message_id,
+                subject=subject,
+                body=body,
+                attachments=[],
+            )
+            thread = EmailThread(
+                conversation_id=resource_data.get("conversationId"),
+                messages=[msg],
+            )
+            response = await process_email_thread_from_graph_payload(thread)
+
+            subj_preview = (subject or "")[:120]
+            logger.info(
+                "Graph notification #%s: behandlet category=%s action=%s confidence=%s subject=%r message_id=%s",
+                idx + 1,
+                response.category.value,
+                response.action,
+                response.confidence,
+                subj_preview,
+                message_id,
+            )
+
+            if response.action == "create_draft_reply" and response.reply_draft and message_id:
+                if not mailbox_user:
+                    logger.error(
+                        "Graph notification #%s: kan ikke opprette kladd uten postboks (mailbox)",
+                        idx + 1,
+                    )
+                else:
+                    try:
+                        graph = GraphClient()
+                        await graph.create_draft_reply(
+                            message_id,
+                            response.reply_draft.replace("\n", "<br/>"),
+                            mailbox=mailbox_user,
+                        )
+                        logger.info(
+                            "Graph notification #%s: kladd-svar opprettet for message_id=%s mailbox=%s",
+                            idx + 1,
+                            message_id,
+                            mailbox_user,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Graph notification #%s: klarte ikke opprette kladd for message_id=%s",
+                            idx + 1,
+                            message_id,
+                        )
+
+            results.append(
+                {"ok": True, "data": response.model_dump(mode="json")}
+            )
+        except Exception as exc:
+            logger.exception(
+                "Graph notification #%s: uventet feil: %s", idx + 1, exc
+            )
+            results.append(
+                {
+                    "ok": False,
+                    "error": str(exc),
+                    "notification_index": idx + 1,
+                }
+            )
 
     return {"results": results}
 
