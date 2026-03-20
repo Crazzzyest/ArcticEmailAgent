@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    for log_name in ("app", "app.main", "app.subscription_renewal", "app.graph_client"):
+        logging.getLogger(log_name).setLevel(logging.INFO)
     task: Optional[asyncio.Task[None]] = None
     settings = get_settings()
     if settings.graph_subscription_renew_enabled and settings.graph_webhook_url:
@@ -100,11 +102,30 @@ async def graph_webhook(
         raise HTTPException(status_code=400, detail="Forventet JSON-body med notifications.") from None
     notifications: List[Dict[str, Any]] = data.get("value", [])
 
+    logger.info(
+        "Graph webhook: mottatt %d notification(s)",
+        len(notifications),
+    )
     results: List[Dict[str, Any]] = []
 
-    for notification in notifications:
+    for idx, notification in enumerate(notifications):
+        change_type = notification.get("changeType")
+        subscription_id = notification.get("subscriptionId")
+        resource = notification.get("resource")
+        tenant_id = notification.get("tenantId")
         resource_data = notification.get("resourceData") or {}
+        odata_id = resource_data.get("@odata.id") or resource_data.get("id")
         subject = resource_data.get("subject")
+
+        logger.info(
+            "Graph notification #%s: changeType=%s subscriptionId=%s tenantId=%s resource=%s resourceData.id=%s",
+            idx + 1,
+            change_type,
+            subscription_id,
+            tenant_id,
+            resource,
+            str(odata_id) if odata_id else None,
+        )
         body = None
         body_content_type = "html"
 
@@ -116,9 +137,18 @@ async def graph_webhook(
         message_id = resource_data.get("id")
 
         if not body and not message_id:
+            logger.warning(
+                "Graph notification #%s: hopper over (ingen body og ingen meldings-id i resourceData)",
+                idx + 1,
+            )
             continue
 
         if not body and message_id:
+            logger.info(
+                "Graph notification #%s: henter full melding fra Graph id=%s",
+                idx + 1,
+                message_id,
+            )
             try:
                 graph = GraphClient()
                 graph_msg = await graph.get_message(message_id)
@@ -131,6 +161,11 @@ async def graph_webhook(
             body_content_type = body_obj.get("contentType", "html")
 
         if not body:
+            logger.warning(
+                "Graph notification #%s: hopper over (ingen body etter henting) id=%s",
+                idx + 1,
+                message_id,
+            )
             continue
 
         msg = EmailMessage(
@@ -145,12 +180,32 @@ async def graph_webhook(
         )
         response = await process_email_thread_from_graph_payload(thread)
 
+        subj_preview = (subject or "")[:120]
+        logger.info(
+            "Graph notification #%s: behandlet category=%s action=%s confidence=%s subject=%r message_id=%s",
+            idx + 1,
+            response.category.value,
+            response.action,
+            response.confidence,
+            subj_preview,
+            message_id,
+        )
+
         if response.action == "create_draft_reply" and response.reply_draft and message_id:
             try:
                 graph = GraphClient()
                 await graph.create_draft_reply(message_id, response.reply_draft.replace("\n", "<br/>"))
+                logger.info(
+                    "Graph notification #%s: kladd-svar opprettet for message_id=%s",
+                    idx + 1,
+                    message_id,
+                )
             except Exception:
-                pass
+                logger.exception(
+                    "Graph notification #%s: klarte ikke opprette kladd for message_id=%s",
+                    idx + 1,
+                    message_id,
+                )
 
         results.append(response.dict())
 
