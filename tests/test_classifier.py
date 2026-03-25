@@ -19,3 +19,17 @@ def test_classify_offer_only():
     result = classify_text(text)
     assert result.category == Category.OFFER_ONLY
 
+
+def test_classify_price_question_without_trade_in_is_offer_only():
+    text = "Hei, hva koster Polaris 570 6x6 hos dere?"
+    result = classify_text(text)
+    assert result.category == Category.OFFER_ONLY
+
+
+def test_classify_price_with_trade_in_stays_trade_in():
+    text = (
+        "Hei, jeg vurderer innbytte av min gamle scooter og lurer på pris på en ny Polaris."
+    )
+    result = classify_text(text)
+    assert result.category == Category.TRADE_IN
+
