@@ -4,6 +4,7 @@ from .email_parser import normalize_email_body
 from .models import (
     Attachment,
     Category,
+    ClassificationResult,
     EmailThread,
     ProcessThreadResponse,
 )
@@ -38,6 +39,7 @@ async def process_email_thread_from_raw(
 
 async def process_email_thread_from_graph_payload(
     thread: EmailThread,
+    mailbox: str | None = None,
 ) -> ProcessThreadResponse:
     """
     En enkel versjon som bruker siste melding i tråden som basis.
@@ -45,6 +47,10 @@ async def process_email_thread_from_graph_payload(
     latest = thread.messages[-1]
     normalized = normalize_email_body(latest.body, is_html=True)
     classification = classify_text(f"{latest.subject or ''}\n\n{normalized}")
+
+    # E-post til service-postboksen → alltid SERVICE
+    if mailbox and mailbox.lower().startswith("service@"):
+        classification = ClassificationResult(category=Category.SERVICE, confidence=1.0)
 
     if classification.category == Category.TRADE_IN:
         _ = check_trade_in_requirements(normalized, latest.attachments)

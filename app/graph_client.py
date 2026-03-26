@@ -112,6 +112,14 @@ class GraphClient:
         url = f"{self.settings.graph_base_url}/subscriptions"
         return await self._request("GET", url)
 
+    async def create_subscription(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        POST /subscriptions – opprett change notification-abonnement.
+        Krever Mail.Read (og ev. tilgang til den konkrete postboksen).
+        """
+        url = f"{self.settings.graph_base_url}/subscriptions"
+        return await self._request("POST", url, json=body)
+
     async def patch_subscription(
         self, subscription_id: str, expiration_datetime: str
     ) -> Dict[str, Any]:
@@ -142,6 +150,19 @@ class GraphClient:
             enc_msg = quote(message_id, safe="")
             url = f"{base}/me/messages/{enc_msg}"
         return await self._request("GET", url)
+
+    async def list_attachments(
+        self, message_id: str, mailbox: Optional[str] = None
+    ) -> list[Dict[str, Any]]:
+        """
+        Henter vedleggslisten for en melding (metadata + base64-innhold).
+        Graph returnerer contentBytes for file-attachments automatisk.
+        """
+        url = self._user_messages_path(
+            mailbox or "me", message_id, "/attachments"
+        )
+        data = await self._request("GET", url)
+        return data.get("value", [])
 
     async def create_draft_reply(
         self,

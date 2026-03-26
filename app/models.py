@@ -17,6 +17,7 @@ class Attachment(BaseModel):
     content_type: Optional[str] = None
     size: Optional[int] = None
     is_inline: bool = False
+    content_bytes: Optional[str] = None  # base64-encoded innhold fra Graph
 
 
 class EmailMessage(BaseModel):

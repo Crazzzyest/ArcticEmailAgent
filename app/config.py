@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     graph_subscription_renew_interval_seconds: int = 21600  # 6 timer
     # Maks ca. 4230 min for postboks-meldinger; hold litt margin under taket
     graph_subscription_extend_minutes: int = 4180
+    # Hemmelighet Graph sender tilbake i webhook (anbefalt; brukes av scripts/create_graph_subscription.py)
+    graph_subscription_client_state: str | None = None
 
     # Unngå duplikat-behandling av samme melding (spar Claude-tokens)
     # Kun kjør pipeline for notifications med created; ignorer rent «updated».

@@ -29,6 +29,7 @@ pip install -r requirements.txt
 - `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` – for Microsoft Graph.
 - `GRAPH_DEFAULT_MAILBOX` – valgfri fallback (f.eks. `Salg@arcticmotor.no`) hvis webhook-notification ikke inneholder parsebar postboks i `resource`/`@odata.id`. For delte postbokser brukes `users/{mailbox}/messages/...` i stedet for `/me/...`.
 - `GRAPH_WEBHOOK_URL` – full offentlig webhook‑URL (f.eks. `https://arcticemailagent.sliplane.app/graph/webhook`). Brukes til automatisk **fornyelse** av Graph‑subscriptions som matcher denne URL‑en (PATCH med ny `expirationDateTime`).
+- `GRAPH_SUBSCRIPTION_CLIENT_STATE` – valgfritt i drift, men **påkrevd** når du oppretter nye subscriptions via skriptet under (hemmelig streng som Graph inkluderer i webhook‑payload; valider den gjerne senere i appen om ønskelig).
 - Valgfritt: `GRAPH_SUBSCRIPTION_RENEW_ENABLED` (default `true`), `GRAPH_SUBSCRIPTION_RENEW_INTERVAL_SECONDS` (default `21600` = 6 timer), `GRAPH_SUBSCRIPTION_EXTEND_MINUTES` (default `4180`, litt under maks for postboks).
 - `GRAPH_WEBHOOK_ONLY_CREATED` (default `true`) – ignorer Graph-notifications med kun `updated` (reduserer duplikater og Claude-bruk).
 - `GRAPH_WEBHOOK_MESSAGE_DEDUPE_TTL_SECONDS` (default `86400`) – ikke kjør pipeline på nytt for samme `message_id` innenfor dette tidsvinduet (in-memory; ved flere instanser trengs ev. delt lagring). Samme `message_id` kan heller ikke behandles **samtidig** (to webhook-POST med mikrosekunders mellomrom, f.eks. doble subscriptions) – da hoppes den ene over som `duplicate_concurrent_or_recent`.
@@ -45,7 +46,17 @@ uvicorn app.main:app --reload
 
 med emne, tekst og eventuelle vedlegg/metadata.
 
-Microsoft‑partneren kan senere sette opp en Graph‑subscription mot `POST /graph/webhook` for å koble dette mot en faktisk mailbox.
+### Opprett ny Graph‑subscription (f.eks. service@)
+
+Fra rotmappen, med `.env` satt (Graph‑nøkler, `GRAPH_WEBHOOK_URL`, `GRAPH_SUBSCRIPTION_CLIENT_STATE`):
+
+```bash
+python scripts/create_graph_subscription.py --mailbox service@arcticmotor.no
+```
+
+Bruk **samme** `notificationUrl` som eksisterende abonnement (standard via `GRAPH_WEBHOOK_URL`), slik at **fornyelsesløkken** i appen fortsatt treffer. `changeType` default er `created` (passer med `GRAPH_WEBHOOK_ONLY_CREATED=true`).
+
+Microsoft‑partneren kan også opprette subscription manuelt mot `POST /graph/webhook` med samme mønster som skriptet sender.
 
 ## Kjøre som Docker‑container
 

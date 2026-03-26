@@ -269,17 +269,47 @@ async def graph_webhook(
                 acquired_for_message = True
                 batch_message_ids.add(message_id)
 
+            # Hent vedleggsmetadata fra Graph (bilder, PDF-er osv.)
+            graph_attachments: list[Attachment] = []
+            if message_id and mailbox_user:
+                try:
+                    graph = GraphClient()
+                    raw_atts = await graph.list_attachments(message_id, mailbox=mailbox_user)
+                    graph_attachments = [
+                        Attachment(
+                            id=a.get("id"),
+                            name=a.get("name"),
+                            content_type=a.get("contentType"),
+                            size=a.get("size"),
+                            is_inline=a.get("isInline", False),
+                            content_bytes=a.get("contentBytes"),
+                        )
+                        for a in raw_atts
+                    ]
+                    logger.info(
+                        "Graph notification #%s: hentet %d vedlegg for message_id=%s",
+                        idx + 1,
+                        len(graph_attachments),
+                        message_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Graph notification #%s: kunne ikke hente vedlegg for message_id=%s",
+                        idx + 1,
+                        message_id,
+                    )
+
             msg = EmailMessage(
                 id=message_id,
                 subject=subject,
                 body=body,
-                attachments=[],
+                attachments=graph_attachments,
             )
             thread = EmailThread(
                 conversation_id=resource_data.get("conversationId"),
                 messages=[msg],
             )
-            response = await process_email_thread_from_graph_payload(thread)
+            response = await process_email_thread_from_graph_payload(thread, mailbox=mailbox_user)
 
             if message_id:
                 await complete_message_processing(

@@ -10,6 +10,13 @@ from .models import (
 )
 
 
+def _has_image_attachments(attachments: list[Attachment]) -> bool:
+    return any(
+        a.content_bytes and a.content_type and a.content_type.startswith("image/")
+        for a in attachments
+    )
+
+
 def _build_system_context() -> str:
     return (
         "Du er kundebehandler hos Arctic Motor (norsk maskinforhandler). "
@@ -28,12 +35,24 @@ def _build_system_context() -> str:
     )
 
 
+_IMAGE_ANALYSIS_INSTRUCTIONS = (
+    "Kunden har lagt ved bilder. Analyser bildene nøye og ta med dine observasjoner i svaret:\n"
+    "- Beskriv kort hva du ser (tilstand, synlige skader, riper, bulker, rust, slitasje osv.).\n"
+    "- Hvis bildene viser skader/riper/slitasje, bekreft at du har sett og notert dette.\n"
+    "- Ikke be om bilder kunden allerede har sendt.\n"
+    "- Vær ærlig men saklig i vurderingen – ikke overdriv verken positivt eller negativt.\n\n"
+)
+
+
 def _build_prompt_for_trade_in(
-    text: str, requirements: RequirementsResult
+    text: str, requirements: RequirementsResult, has_images: bool
 ) -> str:
+    image_block = _IMAGE_ANALYSIS_INSTRUCTIONS if has_images else ""
+
     if requirements.complete:
         return (
             _build_system_context()
+            + image_block
             + "Kunden har sendt en henvendelse om innbytte.\n\n"
             "Epostinnhold:\n"
             f"{text}\n\n"
@@ -47,6 +66,7 @@ def _build_prompt_for_trade_in(
         desired = ", ".join(requirements.desired_missing)
         return (
             _build_system_context()
+            + image_block
             + "Kunden ønsker innbytte, men informasjonen er ikke komplett.\n\n"
             "Epostinnhold:\n"
             f"{text}\n\n"
@@ -59,11 +79,14 @@ def _build_prompt_for_trade_in(
 
 
 def _build_prompt_for_service(
-    text: str, requirements: RequirementsResult
+    text: str, requirements: RequirementsResult, has_images: bool
 ) -> str:
+    image_block = _IMAGE_ANALYSIS_INSTRUCTIONS if has_images else ""
+
     if requirements.complete:
         return (
             _build_system_context()
+            + image_block
             + "Kunden ønsker service/reparasjon/annet verkstedbesøk.\n\n"
             "Epostinnhold:\n"
             f"{text}\n\n"
@@ -77,6 +100,7 @@ def _build_prompt_for_service(
         desired = ", ".join(requirements.desired_missing)
         return (
             _build_system_context()
+            + image_block
             + "Kunden ønsker service/reparasjon/annet, men informasjonen er ikke komplett.\n\n"
             "Epostinnhold:\n"
             f"{text}\n\n"
@@ -106,10 +130,12 @@ async def draft_reply_for_category(
             action="forward_to_human",
         )
 
+    has_images = _has_image_attachments(attachments)
+
     if category == Category.TRADE_IN:
         requirements = check_trade_in_requirements(text, attachments)
-        prompt = _build_prompt_for_trade_in(text, requirements)
-        reply = await generate_reply(prompt)
+        prompt = _build_prompt_for_trade_in(text, requirements, has_images)
+        reply = await generate_reply(prompt, attachments=attachments)
         trade_info = TradeInInfo(
             has_pictures=any(a.content_type and a.content_type.startswith("image/") for a in attachments),
         )
@@ -125,8 +151,8 @@ async def draft_reply_for_category(
 
     if category == Category.SERVICE:
         requirements = check_service_requirements(text, attachments)
-        prompt = _build_prompt_for_service(text, requirements)
-        reply = await generate_reply(prompt)
+        prompt = _build_prompt_for_service(text, requirements, has_images)
+        reply = await generate_reply(prompt, attachments=attachments)
         service_info = ServiceInfo()
         return ProcessThreadResponse(
             category=category,
@@ -147,4 +173,3 @@ async def draft_reply_for_category(
         reply_draft=None,
         action="forward_to_human",
     )
-
